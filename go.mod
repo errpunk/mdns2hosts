@@ -1,6 +1,6 @@
 module github.com/liutao/mdns2hosts
 
-go 1.26.3
+go 1.25.0
 
 require (
 	github.com/miekg/dns v1.1.55
