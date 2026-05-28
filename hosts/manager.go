@@ -15,36 +15,28 @@ const (
 	blockBegin = "# BEGIN mdns2hosts"
 	blockEnd   = "# END mdns2hosts"
 
-	hostsDir      = `C:\Windows\System32\drivers\etc`
 	hostsFileName = "hosts"
 )
 
 // HostsPath returns the full path to the Windows hosts file.
-func HostsPath() (string, error) {
+func HostsPath() string {
 	sysRoot := os.Getenv("SystemRoot")
 	if sysRoot == "" {
 		sysRoot = `C:\Windows`
 	}
-	return filepath.Join(sysRoot, "System32", "drivers", "etc", hostsFileName), nil
+	return filepath.Join(sysRoot, "System32", "drivers", "etc", hostsFileName)
 }
 
-// Entry represents a single hosts entry.
-type Entry struct {
-	IP      net.IP
-	Hosts   []string
-	Comment string
+// ReadHosts reads the system hosts file.
+func ReadHosts() (before []string, managed map[string]net.IP, after []string, err error) {
+	return ReadHostsFile(HostsPath())
 }
 
-// ReadHosts reads the entire hosts file and returns:
+// ReadHostsFile reads a hosts file and returns:
 // - lines before the managed block (preserved as-is)
 // - managed entries within the block
 // - lines after the managed block (preserved as-is)
-func ReadHosts() (before []string, managed map[string]net.IP, after []string, err error) {
-	path, err := HostsPath()
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
+func ReadHostsFile(path string) (before []string, managed map[string]net.IP, after []string, err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("cannot open hosts file %s: %w", path, err)
@@ -103,23 +95,21 @@ func ReadHosts() (before []string, managed map[string]net.IP, after []string, er
 	return before, managed, after, nil
 }
 
-// WriteHosts writes the hosts file with the managed block updated.
-// Lines before and after the block are preserved exactly.
+// WriteHosts writes the system hosts file with the managed block updated.
 func WriteHosts(before []string, entries map[string]net.IP, after []string) error {
-	path, err := HostsPath()
-	if err != nil {
-		return err
-	}
+	return WriteHostsFile(HostsPath(), before, entries, after)
+}
 
+// WriteHostsFile writes a hosts file with the managed block updated.
+// Lines before and after the block are preserved exactly.
+func WriteHostsFile(path string, before []string, entries map[string]net.IP, after []string) error {
 	var buf bytes.Buffer
 
-	// Write before section (includes the BEGIN marker)
 	for _, line := range before {
 		buf.WriteString(line)
 		buf.WriteString("\r\n")
 	}
 
-	// Write managed entries, sorted by hostname
 	var hosts []string
 	for h := range entries {
 		hosts = append(hosts, h)
@@ -131,15 +121,9 @@ func WriteHosts(before []string, entries map[string]net.IP, after []string) erro
 		fmt.Fprintf(&buf, "%s %s\r\n", ip.String(), h)
 	}
 
-	// Write after section (includes the END marker)
 	for _, line := range after {
 		buf.WriteString(line)
 		buf.WriteString("\r\n")
-	}
-
-	// Ensure the block markers exist in the output
-	if len(before) == 0 || strings.TrimSpace(before[len(before)-1]) != blockBegin {
-		return fmt.Errorf("hosts file missing BEGIN marker")
 	}
 
 	// Atomic write: write to temp file then rename
@@ -157,13 +141,12 @@ func WriteHosts(before []string, entries map[string]net.IP, after []string) erro
 }
 
 // EnsureBlock ensures the managed block markers exist in the hosts file.
-// If they don't exist, appends them at the end.
 func EnsureBlock() error {
-	path, err := HostsPath()
-	if err != nil {
-		return err
-	}
+	return EnsureBlockFile(HostsPath())
+}
 
+// EnsureBlockFile ensures the managed block markers exist in the given file.
+func EnsureBlockFile(path string) error {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("cannot read hosts: %w", err)
@@ -179,7 +162,6 @@ func EnsureBlock() error {
 	}
 	defer f.Close()
 
-	// Ensure we end with CRLF before adding markers
 	if len(content) > 0 && !bytes.HasSuffix(content, []byte("\r\n")) {
 		f.Write([]byte("\r\n"))
 	}
@@ -190,9 +172,14 @@ func EnsureBlock() error {
 
 // CleanBlock removes all content between the managed block markers.
 func CleanBlock() error {
-	before, _, after, err := ReadHosts()
+	return CleanBlockFile(HostsPath())
+}
+
+// CleanBlockFile removes all content between the managed block markers in the given file.
+func CleanBlockFile(path string) error {
+	before, _, after, err := ReadHostsFile(path)
 	if err != nil {
 		return err
 	}
-	return WriteHosts(before, nil, after)
+	return WriteHostsFile(path, before, nil, after)
 }

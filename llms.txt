@@ -1,0 +1,108 @@
+# mdns2hosts — LLM Context
+
+## What this program does
+
+mdns2hosts is a Windows CLI tool that resolves mDNS `.local` names via multicast DNS queries and syncs their IPv4 addresses into the Windows hosts file. It manages a delimited block in the hosts file and never modifies entries outside that block.
+
+## Repository structure
+
+```
+cmd/           CLI commands (cobra)
+  root.go      Root command
+  sync.go      sync <name...>  — resolve mDNS names, write to hosts
+  watch.go     watch <name...> — poll mDNS, update hosts on IP change
+  clean.go     clean           — remove managed block content
+  install.go   install-service — register as Windows service (needs Admin)
+  uninstall.go uninstall-service — stop & remove Windows service
+  service_run.go  hidden entry point for SCM (Windows service)
+mdns/          mDNS resolver (raw multicast A-record queries)
+hosts/         Hosts file reader/writer (managed block, atomic writes)
+service/       Windows service integration (build tag: windows)
+main.go        Entry point
+```
+
+## Building
+
+```bash
+# On Windows
+go build -o mdns2hosts.exe .
+
+# Cross-compile from macOS/Linux
+GOOS=windows GOARCH=amd64 go build -o mdns2hosts.exe .
+```
+
+Requires Go 1.24+. Dependencies: `github.com/spf13/cobra`, `github.com/miekg/dns`, `golang.org/x/sys`.
+
+## How to install for a user
+
+1. Download or build `mdns2hosts.exe`.
+2. Place it somewhere on `PATH`, e.g. `C:\tools\mdns2hosts.exe`.
+3. Run from an elevated (Administrator) terminal — writing to the hosts file requires elevation.
+
+## CLI reference
+
+| Command | Args | Description |
+|---|---|---|
+| `sync` | `<name...>` | Resolve names via mDNS, write IPs to hosts managed block |
+| `watch` | `<name...>` | Poll mDNS on interval, update hosts on IP changes. Flags: `--interval` (default 30s) |
+| `clean` | (none) | Remove content between managed block markers |
+| `install-service` | (none) | Register as Windows service. Flags: `--name` (required), `--interval` (default 30s) |
+| `uninstall-service` | (none) | Stop and unregister Windows service |
+
+## What the hosts file looks like
+
+The tool manages only the block between these markers:
+
+```
+# BEGIN mdns2hosts
+192.168.2.179 supercow.local
+# END mdns2hosts
+```
+
+If the markers don't exist on first run, they are appended. Other entries in the hosts file are preserved exactly, including comments, whitespace, and line endings.
+
+## How the mDNS resolver works
+
+1. Enumerate all network interfaces that are UP and support multicast.
+2. For each interface: open a UDP multicast listener on `224.0.0.251:5353`.
+3. Send an A-record query for `<name>.local.`.
+4. Wait for responses (up to 3s timeout per interface).
+5. Return the first matching IPv4 address found.
+
+This bypasses system DNS and the hosts file — it queries mDNS directly on the wire.
+
+## How the hosts manager works
+
+- `ReadHosts()` parses the hosts file into three sections: before-block, block entries, after-block.
+- `WriteHosts()` reassembles the file, writing the block entries sorted by hostname.
+- Writes go to a temp file first, then `os.Rename` — atomic on NTFS.
+- Line endings are always `\r\n` (CRLF).
+- `EnsureBlock()` appends markers if they don't exist yet.
+
+## How the Windows service works
+
+- `install-service` saves a config file (`mdns2hosts.conf`) next to the binary with `NAMES=...` and `INTERVAL=...`.
+- Registers with the Windows Service Control Manager (SCM) as `mdns2hosts`, start type = Automatic.
+- When SCM starts the service, it runs `mdns2hosts.exe service-run`, which executes the handler loop.
+- The handler polls mDNS on the configured interval and updates the hosts file via event log.
+
+## Platform support
+
+- **Windows only** for service mode (`service_run.go`, `service_windows.go`, `handler_windows.go` — build tag `windows`).
+- **Cross-platform** for CLI commands (`sync`, `watch`, `clean`) — they work anywhere Go supports multicast UDP.
+- Non-Windows builds have stubs for `Install`, `Uninstall`, `RunService` that return errors.
+
+## Testing
+
+```bash
+go test ./... -cover
+```
+
+Test files: `mdns/resolver_test.go`, `hosts/manager_test.go`, `service/service_test.go`.
+
+## Known constraints
+
+- IPv4 only. IPv6 mDNS results are ignored.
+- The hosts file path uses `SystemRoot` env var, defaulting to `C:\Windows`.
+- `watch` polls at an interval — it does not use mDNS push notifications.
+- Service mode writes to the Windows event log. If the event log source isn't registered, logs go to stderr.

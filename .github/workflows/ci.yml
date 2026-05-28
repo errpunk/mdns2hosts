@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=3m
+
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: Run tests
+        run: go test -short ./hosts/... ./mdns/... ./service/... -coverprofile=coverage.out -covermode=atomic
+      - name: Report coverage
+        run: go tool cover -func=coverage.out
+
+  coverage:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: Run tests with coverage
+        run: go test ./hosts/... ./mdns/... ./service/... -coverprofile=coverage.out -covermode=atomic
+      - name: Extract coverage percentage
+        id: coverage
+        run: |
+          TOTAL=$(go tool cover -func=coverage.out | tail -1 | awk '{print $3}' | sed 's/%//')
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+          echo "Total coverage: $TOTAL%"
+      - name: Generate coverage badge JSON
+        run: |
+          cat > coverage-badge.json << 'BADGEEOF'
+          {
+            "schemaVersion": 1,
+            "label": "coverage",
+            "message": "${{ steps.coverage.outputs.total }}%",
+            "color": "${{ steps.coverage.outputs.total >= 90 && 'brightgreen' || steps.coverage.outputs.total >= 75 && 'yellow' || 'red' }}"
+          }
+          BADGEEOF
+      - name: Commit coverage badge
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add coverage-badge.json
+          git diff --staged --quiet || git commit -m "Update coverage badge [skip ci]"
+          git push
+
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: Build
+        run: go build -o mdns2hosts${{ matrix.os == 'windows-latest' && '.exe' || '' }} .
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mdns2hosts-${{ matrix.os }}
+          path: mdns2hosts${{ matrix.os == 'windows-latest' && '.exe' || '' }}

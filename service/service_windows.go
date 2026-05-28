@@ -4,8 +4,6 @@ package service
 
 import (
 	"fmt"
-	"os"
-	"strings"
 	"time"
 
 	"golang.org/x/sys/windows/svc"
@@ -83,38 +81,4 @@ func Uninstall() error {
 // RunService is the entry point when the binary is started by SCM.
 func RunService() error {
 	return svc.Run(svcName, &handler{})
-}
-
-// ReadConfig reads the service configuration file.
-func ReadConfig() (names []string, interval time.Duration, err error) {
-	path, err := ConfigPath()
-	if err != nil {
-		return nil, 0, err
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, 0, fmt.Errorf("cannot read config: %w", err)
-	}
-
-	var intervalStr string
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "NAMES=") {
-			names = strings.Split(strings.TrimPrefix(line, "NAMES="), ",")
-		}
-		if strings.HasPrefix(line, "INTERVAL=") {
-			intervalStr = strings.TrimPrefix(line, "INTERVAL=")
-		}
-	}
-
-	if len(names) == 0 {
-		return nil, 0, fmt.Errorf("no names in config")
-	}
-
-	interval, err = time.ParseDuration(intervalStr)
-	if err != nil {
-		interval = 30 * time.Second
-	}
-
-	return names, interval, nil
 }

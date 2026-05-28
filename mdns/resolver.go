@@ -13,12 +13,14 @@ const queryTimeout = 3 * time.Second
 
 var mdnsV4 = &net.UDPAddr{IP: net.IPv4(224, 0, 0, 251), Port: 5353}
 
+// Test hooks
+var interfaceLister = net.Interfaces
+
 // Resolve queries an mDNS name and returns its IPv4 address via multicast DNS.
 func Resolve(name string) (net.IP, error) {
 	host := dns.Fqdn(name)
 
-	// Try each IPv4 network interface
-	ifaces, err := net.Interfaces()
+	ifaces, err := interfaceLister()
 	if err != nil {
 		return nil, fmt.Errorf("cannot list interfaces: %w", err)
 	}
@@ -45,7 +47,7 @@ func resolveOnInterface(host string, iface *net.Interface) (net.IP, error) {
 	defer conn.Close()
 
 	msg := new(dns.Msg)
-	msg.Id = 0 // mDNS queries MUST have ID 0
+	msg.Id = 0
 	msg.RecursionDesired = false
 	msg.SetQuestion(host, dns.TypeA)
 
@@ -67,24 +69,37 @@ func resolveOnInterface(host string, iface *net.Interface) (net.IP, error) {
 			return nil, err
 		}
 
-		reply := new(dns.Msg)
-		if err := reply.Unpack(buf[:n]); err != nil {
+		ip, found, skip := parseMDNSResponse(buf[:n], host)
+		if found {
+			return ip, nil
+		}
+		if skip {
 			continue
 		}
+	}
+}
 
-		// mDNS responses should have QR bit set and be a response
-		if !reply.Response {
-			continue
-		}
+// parseMDNSResponse attempts to extract an A record from a raw DNS response.
+// Returns: (ip, found, skip) — skip=true means the caller should continue reading.
+func parseMDNSResponse(data []byte, host string) (net.IP, bool, bool) {
+	reply := new(dns.Msg)
+	if err := reply.Unpack(data); err != nil {
+		return nil, false, true // skip non-DNS data
+	}
 
-		for _, rr := range reply.Answer {
-			if a, ok := rr.(*dns.A); ok {
-				if strings.EqualFold(a.Hdr.Name, host) {
-					return a.A, nil
-				}
+	if !reply.Response {
+		return nil, false, true // skip queries
+	}
+
+	for _, rr := range reply.Answer {
+		if a, ok := rr.(*dns.A); ok {
+			if strings.EqualFold(a.Hdr.Name, host) {
+				return a.A, true, false
 			}
 		}
 	}
+
+	return nil, false, false // valid response but no matching A record
 }
 
 // ResolveAll resolves multiple mDNS names concurrently.
