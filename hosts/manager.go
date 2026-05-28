@@ -62,13 +62,30 @@ func WriteHosts(before []string, entries map[string]net.IP, after []string) erro
 	return WriteHostsFile(HostsPath(), before, entries, after)
 }
 
+// RenderHosts renders the system hosts file with managed mdns2hosts entries updated.
+func RenderHosts(before []string, entries map[string]net.IP, after []string) (string, error) {
+	return RenderHostsFile(HostsPath(), before, entries, after)
+}
+
 // WriteHostsFile replaces all mdns2hosts-tagged entries in a hosts file.
 // The before/after parameters are ignored; they are retained to keep the public
 // package surface stable while txeh preserves unmanaged file content.
 func WriteHostsFile(path string, before []string, entries map[string]net.IP, after []string) error {
-	h, err := loadHosts(path)
+	rendered, err := RenderHostsFile(path, before, entries, after)
 	if err != nil {
 		return err
+	}
+
+	return writeRendered(path, rendered)
+}
+
+// RenderHostsFile returns the hosts file content that WriteHostsFile would write.
+// The before/after parameters are ignored; they are retained to keep the public
+// package surface stable while txeh preserves unmanaged file content.
+func RenderHostsFile(path string, before []string, entries map[string]net.IP, after []string) (string, error) {
+	h, err := loadHosts(path)
+	if err != nil {
+		return "", err
 	}
 
 	h.RemoveByComment(managedComment)
@@ -87,7 +104,7 @@ func WriteHostsFile(path string, before []string, entries map[string]net.IP, aft
 		h.AddHostWithComment(ip.String(), host, managedComment)
 	}
 
-	return writeRendered(path, h.RenderHostsFile())
+	return toCRLF(h.RenderHostsFile()), nil
 }
 
 // EnsureBlock verifies that the hosts file can be loaded.
@@ -125,7 +142,7 @@ func loadHosts(path string) (*txeh.Hosts, error) {
 }
 
 func writeRendered(path string, rendered string) error {
-	data := []byte(toCRLF(rendered))
+	data := []byte(rendered)
 	tmpPath := path + ".mdns2hosts.tmp"
 
 	if err := os.WriteFile(tmpPath, data, 0644); err != nil {

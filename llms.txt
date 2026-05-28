@@ -11,12 +11,12 @@ cmd/           CLI commands (cobra)
   root.go      Root command
   sync.go      sync <name...>  — resolve mDNS names, write to hosts
   watch.go     watch <name...> — poll mDNS, update hosts on IP change
-  clean.go     clean           — remove managed block content
+  clean.go     clean           — remove entries tagged with # mdns2hosts
   install.go   install-service — register as Windows service (needs Admin)
   uninstall.go uninstall-service — stop & remove Windows service
   service_run.go  hidden entry point for SCM (Windows service)
 mdns/          mDNS resolver (raw multicast A-record queries)
-hosts/         Hosts file reader/writer (managed block, atomic writes)
+hosts/         Hosts file reader/writer (managed comment-tagged entries, atomic writes)
 service/       Windows service integration (build tag: windows)
 main.go        Entry point
 ```
@@ -43,23 +43,21 @@ Requires Go 1.24+. Dependencies: `github.com/spf13/cobra`, `github.com/miekg/dns
 
 | Command | Args | Description |
 |---|---|---|
-| `sync` | `<name...>` | Resolve names via mDNS, write IPs to hosts managed block |
+| `sync` | `<name...>` | Resolve names via mDNS, write IPs to hosts entries tagged with `# mdns2hosts`. Flag: `--dry-run` prints the full updated hosts file content without writing it |
 | `watch` | `<name...>` | Poll mDNS on interval, update hosts on IP changes. Flags: `--interval` (default 30s) |
-| `clean` | (none) | Remove content between managed block markers |
+| `clean` | (none) | Remove entries tagged with `# mdns2hosts` |
 | `install-service` | (none) | Register as Windows service. Flags: `--name` (required), `--interval` (default 30s) |
 | `uninstall-service` | (none) | Stop and unregister Windows service |
 
 ## What the hosts file looks like
 
-The tool manages only the block between these markers:
+The tool manages only entries tagged with `# mdns2hosts`:
 
 ```
-# BEGIN mdns2hosts
-192.168.2.179 supercow.local
-# END mdns2hosts
+192.168.2.179 supercow.local # mdns2hosts
 ```
 
-If the markers don't exist on first run, they are appended. Other entries in the hosts file are preserved exactly, including comments, whitespace, and line endings.
+Other entries in the hosts file are preserved by the txeh hosts-file parser.
 
 ## How the mDNS resolver works
 
@@ -73,11 +71,12 @@ This bypasses system DNS and the hosts file — it queries mDNS directly on the 
 
 ## How the hosts manager works
 
-- `ReadHosts()` parses the hosts file into three sections: before-block, block entries, after-block.
-- `WriteHosts()` reassembles the file, writing the block entries sorted by hostname.
+- `ReadHosts()` parses entries tagged with `# mdns2hosts`.
+- `RenderHosts()` returns the complete hosts content that would be written, used by `sync --dry-run`.
+- `WriteHosts()` reassembles the file, writing managed entries sorted by hostname.
 - Writes go to a temp file first, then `os.Rename` — atomic on NTFS.
 - Line endings are always `\r\n` (CRLF).
-- `EnsureBlock()` appends markers if they don't exist yet.
+- `EnsureBlock()` verifies that the hosts file can be loaded.
 
 ## How the Windows service works
 

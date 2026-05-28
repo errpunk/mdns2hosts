@@ -87,6 +87,32 @@ func TestWriteHostsFile_UsesManagedComment(t *testing.T) {
 	}
 }
 
+func TestRenderHostsFileDoesNotWrite(t *testing.T) {
+	path := writeTemp(t, "127.0.0.1 localhost\r\n10.0.0.1 old.local # mdns2hosts\r\n")
+	entries := map[string]net.IP{
+		"new.local": net.ParseIP("10.0.0.2"),
+	}
+
+	rendered, err := RenderHostsFile(path, nil, entries, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(current), "new.local") {
+		t.Fatalf("render should not write file, got %q", string(current))
+	}
+	if !strings.Contains(rendered, "10.0.0.2") || !strings.Contains(rendered, "new.local # mdns2hosts") {
+		t.Fatalf("rendered hosts missing new entry: %q", rendered)
+	}
+	if strings.Contains(rendered, "old.local") {
+		t.Fatalf("rendered hosts should remove old managed entries: %q", rendered)
+	}
+}
+
 func TestWriteHostsFile_ReplacesOnlyManagedEntries(t *testing.T) {
 	content := strings.Join([]string{
 		"127.0.0.1 localhost",
@@ -301,6 +327,27 @@ func TestWriteHosts_Wrapper(t *testing.T) {
 	}
 	if managed["w.local"] == nil {
 		t.Fatal("entry not written via wrapper")
+	}
+}
+
+func TestRenderHosts_Wrapper(t *testing.T) {
+	setupFakeHosts(t, "127.0.0.1 localhost\r\n10.0.0.1 old.local # mdns2hosts\r\n")
+	entries := map[string]net.IP{"wrapped.local": net.ParseIP("10.0.0.3")}
+
+	rendered, err := RenderHosts(nil, entries, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, managed, _, err := ReadHosts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := managed["wrapped.local"]; ok {
+		t.Fatal("render should not write hosts")
+	}
+	if !strings.Contains(rendered, "10.0.0.3") || !strings.Contains(rendered, "wrapped.local # mdns2hosts") {
+		t.Fatalf("rendered hosts missing wrapped entry: %q", rendered)
 	}
 }
 

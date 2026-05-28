@@ -40,7 +40,14 @@ mdns2hosts sync supercow.local
 
 # Multiple names
 mdns2hosts sync supercow.local devbox.local printer.local
+
+# Preview the complete updated hosts file without writing it
+mdns2hosts sync supercow.local --dry-run
 ```
+
+`--dry-run` resolves the requested names, applies the same managed-entry update
+logic as a real sync, and prints the full resulting hosts file content to the
+terminal without modifying the file.
 
 ### Watch for IP changes continuously
 

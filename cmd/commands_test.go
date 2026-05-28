@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"net"
+	"strings"
 	"testing"
 	"time"
 )
@@ -13,6 +14,7 @@ func withCmdDeps(t *testing.T) {
 	origEnsure := ensureHostsFile
 	origRead := readHostsFile
 	origWrite := writeHostsFile
+	origRender := renderHostsFile
 	origResolve := resolveAllNames
 	origClean := cleanHostsFile
 	origExe := serviceExePath
@@ -20,11 +22,13 @@ func withCmdDeps(t *testing.T) {
 	origUninstall := uninstallService
 	origNames := svcNames
 	origInterval := svcInterval
+	origDryRun := syncDryRun
 
 	t.Cleanup(func() {
 		ensureHostsFile = origEnsure
 		readHostsFile = origRead
 		writeHostsFile = origWrite
+		renderHostsFile = origRender
 		resolveAllNames = origResolve
 		cleanHostsFile = origClean
 		serviceExePath = origExe
@@ -32,6 +36,7 @@ func withCmdDeps(t *testing.T) {
 		uninstallService = origUninstall
 		svcNames = origNames
 		svcInterval = origInterval
+		syncDryRun = origDryRun
 	})
 }
 
@@ -119,6 +124,47 @@ func TestRunSyncErrors(t *testing.T) {
 				t.Fatal("expected error")
 			}
 		})
+	}
+}
+
+func TestRunSyncDryRunRendersHostsWithoutWriting(t *testing.T) {
+	withCmdDeps(t)
+	syncDryRun = true
+	writeCalled := false
+
+	ensureHostsFile = func() error { return nil }
+	resolveAllNames = func([]string) (map[string]net.IP, []error) {
+		return map[string]net.IP{"foo.local": net.ParseIP("10.0.0.1")}, nil
+	}
+	readHostsFile = func() ([]string, map[string]net.IP, []string, error) {
+		return []string{"before"}, nil, []string{"after"}, nil
+	}
+	renderHostsFile = func(before []string, entries map[string]net.IP, after []string) (string, error) {
+		if before[0] != "before" || after[0] != "after" {
+			t.Fatalf("unexpected preserved sections: %v %v", before, after)
+		}
+		if !entries["foo.local"].Equal(net.ParseIP("10.0.0.1")) {
+			t.Fatalf("unexpected entries: %v", entries)
+		}
+		return "127.0.0.1 localhost\r\n10.0.0.1 foo.local # mdns2hosts\r\n", nil
+	}
+	writeHostsFile = func([]string, map[string]net.IP, []string) error {
+		writeCalled = true
+		return nil
+	}
+
+	var out strings.Builder
+	cmd := syncCmd
+	cmd.SetOut(&out)
+	t.Cleanup(func() { cmd.SetOut(nil) })
+	if err := runSync(cmd, []string{"foo.local"}); err != nil {
+		t.Fatal(err)
+	}
+	if writeCalled {
+		t.Fatal("dry-run should not write hosts")
+	}
+	if !strings.Contains(out.String(), "foo.local # mdns2hosts") {
+		t.Fatalf("expected rendered hosts on stdout, got %q", out.String())
 	}
 }
 
