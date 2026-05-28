@@ -102,7 +102,19 @@ func WriteHosts(before []string, entries map[string]net.IP, after []string) erro
 
 // WriteHostsFile writes a hosts file with the managed block updated.
 // Lines before and after the block are preserved exactly.
+// If the before/after slices don't contain the managed block markers,
+// they are added automatically.
 func WriteHostsFile(path string, before []string, entries map[string]net.IP, after []string) error {
+	// Ensure BEGIN marker exists in before section
+	if len(before) == 0 || strings.TrimSpace(before[len(before)-1]) != blockBegin {
+		before = append(before, blockBegin)
+	}
+
+	// Ensure END marker exists in after section
+	if len(after) == 0 || strings.TrimSpace(after[0]) != blockEnd {
+		after = append([]string{blockEnd}, after...)
+	}
+
 	var buf bytes.Buffer
 
 	for _, line := range before {

@@ -514,6 +514,28 @@ func TestCleanBlock_Wrapper(t *testing.T) {
 	}
 }
 
+func TestWriteHostsFile_AutoAddsMarkers(t *testing.T) {
+	// WriteHostsFile should auto-add markers if before/after don't contain them
+	path := writeTemp(t, "just content\r\n")
+
+	entries := map[string]net.IP{"test.local": net.ParseIP("1.1.1.1")}
+	err := WriteHostsFile(path, []string{"just content"}, entries, []string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	content := readTemp(t, path)
+	if !strings.Contains(content, blockBegin) {
+		t.Error("BEGIN marker should be auto-added")
+	}
+	if !strings.Contains(content, blockEnd) {
+		t.Error("END marker should be auto-added")
+	}
+	if !strings.Contains(content, "test.local") {
+		t.Error("entry should be written")
+	}
+}
+
 func TestWriteHostsFile_NoBeginMarker(t *testing.T) {
 	// WriteHostsFile doesn't validate markers — it writes whatever is given.
 	// This test verifies it works even when the "before" section lacks a BEGIN marker.
