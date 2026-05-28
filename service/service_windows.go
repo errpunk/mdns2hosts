@@ -13,9 +13,50 @@ import (
 const svcName = "mdns2hosts"
 const svcDisplay = "mDNS to Hosts Sync Service"
 
+type serviceManager interface {
+	Disconnect() error
+	OpenService(name string) (managedService, error)
+	CreateService(name, exepath string, c mgr.Config, args ...string) (managedService, error)
+}
+
+type managedService interface {
+	Close() error
+	Query() (svc.Status, error)
+	Control(c svc.Cmd) (svc.Status, error)
+	Delete() error
+}
+
+type realServiceManager struct {
+	manager *mgr.Mgr
+}
+
+func (r realServiceManager) Disconnect() error {
+	return r.manager.Disconnect()
+}
+
+func (r realServiceManager) OpenService(name string) (managedService, error) {
+	return r.manager.OpenService(name)
+}
+
+func (r realServiceManager) CreateService(name, exepath string, c mgr.Config, args ...string) (managedService, error) {
+	return r.manager.CreateService(name, exepath, c, args...)
+}
+
+var (
+	connectServiceManager = func() (serviceManager, error) {
+		m, err := mgr.Connect()
+		if err != nil {
+			return nil, err
+		}
+		return realServiceManager{manager: m}, nil
+	}
+	runWindowsService = svc.Run
+	serviceStopSleep  = time.Sleep
+)
+
 // Install registers the Windows service.
 func Install(names []string, interval, exePath string) error {
-	m, err := mgr.Connect()
+	m, err := connectServiceManager()
 	if err != nil {
 		return fmt.Errorf("cannot connect to service manager (run as Admin?): %w", err)
 	}
@@ -50,7 +91,7 @@ func Install(names []string, interval, exePath string) error {
 
 // Uninstall stops and removes the Windows service.
 func Uninstall() error {
-	m, err := mgr.Connect()
+	m, err := connectServiceManager()
 	if err != nil {
 		return fmt.Errorf("cannot connect to service manager: %w", err)
 	}
@@ -69,7 +110,7 @@ func Uninstall() error {
 			// Not fatal - proceed with deletion
 		}
 		// Wait a bit for stop
-		time.Sleep(2 * time.Second)
+		serviceStopSleep(2 * time.Second)
 	}
 
 	if err := s.Delete(); err != nil {
@@ -80,5 +121,5 @@ func Uninstall() error {
 
 // RunService is the entry point when the binary is started by SCM.
 func RunService() error {
-	return svc.Run(svcName, &handler{})
+	return runWindowsService(svcName, &handler{})
 }
