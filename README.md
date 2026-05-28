@@ -6,7 +6,7 @@
 
 Sync mDNS `.local` names to the Windows `hosts` file — automatically.
 
-mdns2hosts resolves mDNS names directly via multicast DNS (bypassing system DNS) and writes the resulting IPv4 addresses into a managed block of the Windows hosts file. Other entries in the hosts file are never touched.
+mdns2hosts resolves mDNS names directly via multicast DNS (bypassing system DNS) and writes the resulting IPv4 addresses into `# mdns2hosts`-tagged entries in the Windows hosts file. Other entries in the hosts file are never touched.
 
 ## Installation
 
@@ -22,7 +22,7 @@ cd mdns2hosts
 go build -o mdns2hosts.exe .
 ```
 
-Requires Go 1.24+.
+Requires Go 1.25+.
 
 ### Cross-compile from macOS/Linux
 
@@ -56,7 +56,7 @@ Runs until interrupted (Ctrl+C). Updates hosts whenever an IP changes.
 mdns2hosts clean
 ```
 
-Removes all entries between the managed block markers.
+Removes all entries tagged with `# mdns2hosts`.
 
 ### Run as a Windows service
 
@@ -74,13 +74,11 @@ mdns2hosts uninstall-service
 ## How it works
 
 1. **mDNS query**: Sends a multicast DNS A-record query directly to `224.0.0.251:5353`. No system DNS resolution involved.
-2. **Hosts update**: Writes resolved IPs into a managed block of the Windows hosts file (`C:\Windows\System32\drivers\etc\hosts`).
-3. **Managed block**: Only touches lines between the markers — everything else is preserved exactly.
+2. **Hosts update**: Writes resolved IPs into tagged entries in the Windows hosts file (`C:\Windows\System32\drivers\etc\hosts`).
+3. **Managed entries**: Only replaces lines tagged with `# mdns2hosts` — everything else is preserved.
 
 ```text
-# BEGIN mdns2hosts
-192.168.1.88 supercow.local
-# END mdns2hosts
+192.168.1.88 supercow.local # mdns2hosts
 ```
 
 Updates are atomic (write to temp file, rename over real file). Line endings are CRLF.

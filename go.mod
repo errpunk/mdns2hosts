@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/miekg/dns v1.1.55
 	github.com/spf13/cobra v1.10.2
+	github.com/txn2/txeh v1.8.0
 	golang.org/x/sys v0.45.0
 )
 

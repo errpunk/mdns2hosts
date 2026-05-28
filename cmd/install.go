@@ -3,13 +3,12 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/liutao/mdns2hosts/service"
 	"github.com/spf13/cobra"
 )
 
 var (
-	svcNames     []string
-	svcInterval  string
+	svcNames    []string
+	svcInterval string
 )
 
 var installCmd = &cobra.Command{
@@ -29,12 +28,12 @@ func init() {
 }
 
 func runInstall(cmd *cobra.Command, args []string) error {
-	exePath, err := service.ExePath()
+	exePath, err := serviceExePath()
 	if err != nil {
 		return fmt.Errorf("cannot determine executable path: %w", err)
 	}
 
-	if err := service.Install(svcNames, svcInterval, exePath); err != nil {
+	if err := installService(svcNames, svcInterval, exePath); err != nil {
 		return fmt.Errorf("failed to install service: %w", err)
 	}
 

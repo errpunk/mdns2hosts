@@ -1,7 +1,6 @@
 package hosts
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
 	"net"
@@ -9,13 +8,13 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/txn2/txeh"
 )
 
 const (
-	blockBegin = "# BEGIN mdns2hosts"
-	blockEnd   = "# END mdns2hosts"
-
-	hostsFileName = "hosts"
+	managedComment = "mdns2hosts"
+	hostsFileName  = "hosts"
 )
 
 // HostsPath returns the full path to the Windows hosts file.
@@ -32,115 +31,104 @@ func ReadHosts() (before []string, managed map[string]net.IP, after []string, er
 	return ReadHostsFile(HostsPath())
 }
 
-// ReadHostsFile reads a hosts file and returns:
-// - lines before the managed block (preserved as-is)
-// - managed entries within the block
-// - lines after the managed block (preserved as-is)
+// ReadHostsFile reads a hosts file and returns managed mdns2hosts entries.
+// The before/after return values are retained for compatibility with callers
+// that used the previous block-oriented API; txeh owns preservation now.
 func ReadHostsFile(path string) (before []string, managed map[string]net.IP, after []string, err error) {
-	f, err := os.Open(path)
+	h, err := loadHosts(path)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("cannot open hosts file %s: %w", path, err)
+		return nil, nil, nil, err
 	}
-	defer f.Close()
 
 	managed = make(map[string]net.IP)
-	var inBlock bool
-	var section int // 0=before, 1=block, 2=after
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		if strings.TrimSpace(line) == blockBegin {
-			inBlock = true
-			section = 1
-			before = append(before, line)
+	for _, line := range h.GetHostFileLines() {
+		if line.Comment != managedComment {
 			continue
 		}
-		if strings.TrimSpace(line) == blockEnd {
-			inBlock = false
-			section = 2
-			after = append(after, line)
+		ip := net.ParseIP(line.Address)
+		if ip == nil {
 			continue
 		}
-
-		switch section {
-		case 0:
-			if !inBlock {
-				before = append(before, line)
-			}
-		case 1:
-			trimmed := strings.TrimSpace(line)
-			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-				continue
-			}
-			fields := strings.Fields(trimmed)
-			if len(fields) >= 2 {
-				ip := net.ParseIP(fields[0])
-				if ip != nil {
-					for _, h := range fields[1:] {
-						managed[h] = ip
-					}
-				}
-			}
-		case 2:
-			after = append(after, line)
+		for _, host := range line.Hostnames {
+			managed[host] = ip
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		return nil, nil, nil, fmt.Errorf("error reading hosts: %w", err)
-	}
-
-	return before, managed, after, nil
+	return nil, managed, nil, nil
 }
 
-// WriteHosts writes the system hosts file with the managed block updated.
+// WriteHosts writes the system hosts file with managed mdns2hosts entries updated.
 func WriteHosts(before []string, entries map[string]net.IP, after []string) error {
 	return WriteHostsFile(HostsPath(), before, entries, after)
 }
 
-// WriteHostsFile writes a hosts file with the managed block updated.
-// Lines before and after the block are preserved exactly.
-// If the before/after slices don't contain the managed block markers,
-// they are added automatically.
+// WriteHostsFile replaces all mdns2hosts-tagged entries in a hosts file.
+// The before/after parameters are ignored; they are retained to keep the public
+// package surface stable while txeh preserves unmanaged file content.
 func WriteHostsFile(path string, before []string, entries map[string]net.IP, after []string) error {
-	// Ensure BEGIN marker exists in before section
-	if len(before) == 0 || strings.TrimSpace(before[len(before)-1]) != blockBegin {
-		before = append(before, blockBegin)
+	h, err := loadHosts(path)
+	if err != nil {
+		return err
 	}
 
-	// Ensure END marker exists in after section
-	if len(after) == 0 || strings.TrimSpace(after[0]) != blockEnd {
-		after = append([]string{blockEnd}, after...)
-	}
-
-	var buf bytes.Buffer
-
-	for _, line := range before {
-		buf.WriteString(line)
-		buf.WriteString("\r\n")
-	}
+	h.RemoveByComment(managedComment)
 
 	var hosts []string
-	for h := range entries {
-		hosts = append(hosts, h)
+	for host := range entries {
+		hosts = append(hosts, host)
 	}
 	sort.Strings(hosts)
 
-	for _, h := range hosts {
-		ip := entries[h]
-		fmt.Fprintf(&buf, "%s %s\r\n", ip.String(), h)
+	for _, host := range hosts {
+		ip := entries[host]
+		if ip == nil {
+			continue
+		}
+		h.AddHostWithComment(ip.String(), host, managedComment)
 	}
 
-	for _, line := range after {
-		buf.WriteString(line)
-		buf.WriteString("\r\n")
-	}
+	return writeRendered(path, h.RenderHostsFile())
+}
 
-	// Atomic write: write to temp file then rename
+// EnsureBlock verifies that the hosts file can be loaded.
+// mdns2hosts now uses comment-tagged entries instead of BEGIN/END block markers.
+func EnsureBlock() error {
+	return EnsureBlockFile(HostsPath())
+}
+
+// EnsureBlockFile verifies that the given hosts file can be loaded.
+func EnsureBlockFile(path string) error {
+	_, err := loadHosts(path)
+	return err
+}
+
+// CleanBlock removes all mdns2hosts-managed entries.
+func CleanBlock() error {
+	return CleanBlockFile(HostsPath())
+}
+
+// CleanBlockFile removes all mdns2hosts-managed entries in the given file.
+func CleanBlockFile(path string) error {
+	return WriteHostsFile(path, nil, nil, nil)
+}
+
+func loadHosts(path string) (*txeh.Hosts, error) {
+	h, err := txeh.NewHosts(&txeh.HostsConfig{
+		ReadFilePath:    path,
+		WriteFilePath:   path,
+		MaxHostsPerLine: 0,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("read hosts file %s: %w", path, err)
+	}
+	return h, nil
+}
+
+func writeRendered(path string, rendered string) error {
+	data := []byte(toCRLF(rendered))
 	tmpPath := path + ".mdns2hosts.tmp"
-	if err := os.WriteFile(tmpPath, buf.Bytes(), 0644); err != nil {
+
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
 		return fmt.Errorf("cannot write temp hosts: %w", err)
 	}
 
@@ -152,46 +140,26 @@ func WriteHostsFile(path string, before []string, entries map[string]net.IP, aft
 	return nil
 }
 
-// EnsureBlock ensures the managed block markers exist in the hosts file.
-func EnsureBlock() error {
-	return EnsureBlockFile(HostsPath())
+func toCRLF(s string) string {
+	normalized := strings.ReplaceAll(s, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	return strings.ReplaceAll(normalized, "\n", "\r\n")
 }
 
-// EnsureBlockFile ensures the managed block markers exist in the given file.
-func EnsureBlockFile(path string) error {
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("cannot read hosts: %w", err)
-	}
+func isManagedLine(line string) bool {
+	return strings.TrimSpace(line) == "# "+managedComment ||
+		strings.HasSuffix(strings.TrimSpace(line), " # "+managedComment)
+}
 
-	if bytes.Contains(content, []byte(blockBegin)) && bytes.Contains(content, []byte(blockEnd)) {
+func splitLines(data []byte) []string {
+	data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+	data = bytes.ReplaceAll(data, []byte("\r"), []byte("\n"))
+	text := string(data)
+	if strings.HasSuffix(text, "\n") {
+		text = strings.TrimSuffix(text, "\n")
+	}
+	if text == "" {
 		return nil
 	}
-
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("cannot open hosts for append: %w", err)
-	}
-	defer f.Close()
-
-	if len(content) > 0 && !bytes.HasSuffix(content, []byte("\r\n")) {
-		f.Write([]byte("\r\n"))
-	}
-
-	fmt.Fprintf(f, "%s\r\n%s\r\n", blockBegin, blockEnd)
-	return nil
-}
-
-// CleanBlock removes all content between the managed block markers.
-func CleanBlock() error {
-	return CleanBlockFile(HostsPath())
-}
-
-// CleanBlockFile removes all content between the managed block markers in the given file.
-func CleanBlockFile(path string) error {
-	before, _, after, err := ReadHostsFile(path)
-	if err != nil {
-		return err
-	}
-	return WriteHostsFile(path, before, nil, after)
+	return strings.Split(text, "\n")
 }

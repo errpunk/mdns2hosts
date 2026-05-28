@@ -9,7 +9,7 @@ var rootCmd = &cobra.Command{
 	Short: "Sync mDNS names to Windows hosts file",
 	Long: `mdns2hosts queries mDNS (.local) names directly via multicast DNS
 and writes resolved IPv4 addresses into the Windows hosts file
-within a managed block, keeping other entries untouched.`,
+as entries tagged with "# mdns2hosts", keeping other entries untouched.`,
 	SilenceUsage: true,
 }
 
