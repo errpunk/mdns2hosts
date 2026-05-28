@@ -140,6 +140,15 @@ func TestInstallWindowsErrors(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "save config",
+			setup: func() {
+				configPathForTest = t.TempDir()
+				connectServiceManager = func() (serviceManager, error) {
+					return &fakeManager{openErr: errors.New("not installed")}, nil
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -165,6 +174,38 @@ func TestUninstallWindowsSuccess(t *testing.T) {
 	}
 	if !service.controlled || !service.deleted || !service.closed {
 		t.Fatalf("unexpected service calls: %+v", service)
+	}
+}
+
+func TestUninstallWindowsIgnoresStopErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		service *fakeService
+	}{
+		{
+			name:    "query",
+			service: &fakeService{queryErr: errors.New("query")},
+		},
+		{
+			name:    "control",
+			service: &fakeService{status: svc.Status{State: svc.Running}, controlErr: errors.New("control")},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withWindowsServiceDeps(t)
+			connectServiceManager = func() (serviceManager, error) {
+				return &fakeManager{openService: tt.service}, nil
+			}
+
+			if err := Uninstall(); err != nil {
+				t.Fatal(err)
+			}
+			if !tt.service.deleted {
+				t.Fatal("service should still be deleted")
+			}
+		})
 	}
 }
 
