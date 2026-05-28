@@ -27,9 +27,9 @@ jobs:
         with:
           go-version: "1.24"
       - name: Run tests
-        run: go test -short ./hosts/... ./mdns/... ./service/... -coverprofile=coverage.out -covermode=atomic
+        run: go test -short ./hosts/... ./mdns/... ./service/... -coverprofile coverage.out -covermode atomic
       - name: Report coverage
-        run: go tool cover -func=coverage.out
+        run: go tool cover -func coverage.out
 
   coverage:
     needs: test
@@ -43,11 +43,11 @@ jobs:
         with:
           go-version: "1.24"
       - name: Run tests with coverage
-        run: go test ./hosts/... ./mdns/... ./service/... -coverprofile=coverage.out -covermode=atomic
+        run: go test ./hosts/... ./mdns/... ./service/... -coverprofile coverage.out -covermode atomic
       - name: Generate coverage badge JSON
         shell: pwsh
         run: |
-          $total = (go tool cover -func=coverage.out | Select-Object -Last 1) -replace '.*\s+(\d+\.\d+)%.*','$1'
+          $total = (go tool cover -func coverage.out | Select-Object -Last 1) -replace '.*\s+(\d+\.\d+)%.*','$1'
           $color = if ([double]$total -ge 90) { 'brightgreen' } elseif ([double]$total -ge 75) { 'yellow' } else { 'red' }
           @{ schemaVersion = 1; label = 'coverage'; message = "$total%"; color = $color } | ConvertTo-Json -Compress | Out-File -FilePath coverage-badge.json -Encoding utf8NoBOM
       - name: Commit coverage badge
@@ -66,8 +66,7 @@ jobs:
         with:
           go-version: "1.24"
       - name: Build
-        run: |
-          go build -ldflags "-X main.Version=${{ github.ref_name }}-${{ github.sha }}" -o mdns2hosts.exe .
+        run: go build -ldflags "-X main.Version=${{ github.ref_name }}-${{ github.sha }}" -o mdns2hosts.exe .
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
