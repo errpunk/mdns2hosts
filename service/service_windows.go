@@ -74,14 +74,11 @@ func Install(names []string, interval, exePath string) error {
 		return fmt.Errorf("cannot save config: %w", err)
 	}
 
-	// Build the binary path with arguments to run as a service
-	binPath := fmt.Sprintf(`"%s" service-run`, exePath)
-
-	s, err = m.CreateService(svcName, binPath, mgr.Config{
+	s, err = m.CreateService(svcName, exePath, mgr.Config{
 		StartType:   mgr.StartAutomatic,
 		DisplayName: svcDisplay,
 		Description: "Periodically syncs mDNS names to the hosts file",
-	})
+	}, "service-run")
 	if err != nil {
 		return fmt.Errorf("cannot create service: %w", err)
 	}
