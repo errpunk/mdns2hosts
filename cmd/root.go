@@ -16,4 +16,3 @@ within a managed block, keeping other entries untouched.`,
 func Execute() error {
 	return rootCmd.Execute()
 }
-

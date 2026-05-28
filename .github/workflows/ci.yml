@@ -20,10 +20,7 @@ jobs:
           args: --timeout=3m
 
   test:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -37,7 +34,7 @@ jobs:
   coverage:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     permissions:
       contents: write
     steps:
@@ -47,22 +44,12 @@ jobs:
           go-version: "1.24"
       - name: Run tests with coverage
         run: go test ./hosts/... ./mdns/... ./service/... -coverprofile=coverage.out -covermode=atomic
-      - name: Extract coverage percentage
-        id: coverage
-        run: |
-          TOTAL=$(go tool cover -func=coverage.out | tail -1 | awk '{print $3}' | sed 's/%//')
-          echo "total=$TOTAL" >> $GITHUB_OUTPUT
-          echo "Total coverage: $TOTAL%"
       - name: Generate coverage badge JSON
+        shell: pwsh
         run: |
-          cat > coverage-badge.json << 'BADGEEOF'
-          {
-            "schemaVersion": 1,
-            "label": "coverage",
-            "message": "${{ steps.coverage.outputs.total }}%",
-            "color": "${{ steps.coverage.outputs.total >= 90 && 'brightgreen' || steps.coverage.outputs.total >= 75 && 'yellow' || 'red' }}"
-          }
-          BADGEEOF
+          $total = (go tool cover -func=coverage.out | Select-Object -Last 1) -replace '.*\s+(\d+\.\d+)%.*','$1'
+          $color = if ([double]$total -ge 90) { 'brightgreen' } elseif ([double]$total -ge 75) { 'yellow' } else { 'red' }
+          @{ schemaVersion = 1; label = 'coverage'; message = "$total%"; color = $color } | ConvertTo-Json -Compress | Out-File -FilePath coverage-badge.json -Encoding utf8NoBOM
       - name: Commit coverage badge
         run: |
           git config user.name "github-actions[bot]"
@@ -72,19 +59,17 @@ jobs:
           git push
 
   build:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
       - name: Build
-        run: go build -o mdns2hosts${{ matrix.os == 'windows-latest' && '.exe' || '' }} .
+        run: |
+          go build -ldflags "-X main.Version=${{ github.ref_name }}-${{ github.sha }}" -o mdns2hosts.exe .
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mdns2hosts-${{ matrix.os }}
-          path: mdns2hosts${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+          name: mdns2hosts-windows
+          path: mdns2hosts.exe
