@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"os"
 
@@ -20,6 +21,7 @@ the resulting IPv4 addresses into # mdns2hosts-tagged hosts entries.`,
 }
 
 func init() {
+	syncCmd.Flags().BoolVar(&syncDryRun, "dry-run", false, "print the updated hosts file content without writing it")
 	rootCmd.AddCommand(syncCmd)
 }
 
@@ -27,7 +29,9 @@ var (
 	ensureHostsFile = hosts.EnsureBlock
 	readHostsFile   = hosts.ReadHosts
 	writeHostsFile  = hosts.WriteHosts
+	renderHostsFile = hosts.RenderHosts
 	resolveAllNames = mdns.ResolveAll
+	syncDryRun      bool
 )
 
 func runSync(cmd *cobra.Command, args []string) error {
@@ -47,6 +51,19 @@ func runSync(cmd *cobra.Command, args []string) error {
 	before, _, after, err := readHostsFile()
 	if err != nil {
 		return fmt.Errorf("failed to read hosts: %w", err)
+	}
+
+	if syncDryRun {
+		rendered, err := renderHostsFile(before, results, after)
+		if err != nil {
+			return fmt.Errorf("failed to render hosts: %w", err)
+		}
+		var out io.Writer = os.Stdout
+		if cmd != nil {
+			out = cmd.OutOrStdout()
+		}
+		fmt.Fprint(out, rendered)
+		return nil
 	}
 
 	if err := writeHostsFile(before, results, after); err != nil {
