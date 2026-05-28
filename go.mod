@@ -3,6 +3,7 @@ module github.com/liutao/mdns2hosts
 go 1.25.0
 
 require (
+	github.com/kardianos/service v1.2.4
 	github.com/miekg/dns v1.1.55
 	github.com/spf13/cobra v1.10.2
 	github.com/txn2/txeh v1.8.0

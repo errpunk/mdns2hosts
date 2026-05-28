@@ -7,7 +7,7 @@ import (
 
 var serviceRunCmd = &cobra.Command{
 	Use:    "service-run",
-	Short:  "Run as a Windows service (called by SCM)",
+	Short:  "Run as a system service",
 	Hidden: true,
 	Args:   cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {

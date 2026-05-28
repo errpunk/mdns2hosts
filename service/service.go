@@ -9,6 +9,9 @@ import (
 	"time"
 )
 
+const svcName = "mdns2hosts"
+const svcDisplay = "mDNS to Hosts Sync Service"
+
 // configPathForTest allows tests to override the config path.
 var configPathForTest string
 
