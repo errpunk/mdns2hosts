@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/liutao/mdns2hosts/service"
 	"github.com/spf13/cobra"
 )
 
@@ -20,7 +19,7 @@ func init() {
 }
 
 func runUninstall(cmd *cobra.Command, args []string) error {
-	if err := service.Uninstall(); err != nil {
+	if err := uninstallService(); err != nil {
 		return fmt.Errorf("failed to uninstall service: %w", err)
 	}
 	fmt.Println("Service uninstalled.")

@@ -2,6 +2,7 @@ package mdns
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"time"
@@ -14,7 +15,22 @@ const queryTimeout = 3 * time.Second
 var mdnsV4 = &net.UDPAddr{IP: net.IPv4(224, 0, 0, 251), Port: 5353}
 
 // Test hooks
-var interfaceLister = net.Interfaces
+var (
+	interfaceLister    = net.Interfaces
+	listenMulticastUDP = defaultListenMulticastUDP
+	newDNSMessage      = func() *dns.Msg { return new(dns.Msg) }
+)
+
+type multicastPacketConn interface {
+	io.Closer
+	WriteTo([]byte, net.Addr) (int, error)
+	SetReadDeadline(time.Time) error
+	ReadFrom([]byte) (int, net.Addr, error)
+}
+
+func defaultListenMulticastUDP(network string, iface *net.Interface, group *net.UDPAddr) (multicastPacketConn, error) {
+	return net.ListenMulticastUDP(network, iface, group)
+}
 
 // Resolve queries an mDNS name and returns its IPv4 address via multicast DNS.
 func Resolve(name string) (net.IP, error) {
@@ -40,13 +56,13 @@ func Resolve(name string) (net.IP, error) {
 }
 
 func resolveOnInterface(host string, iface *net.Interface) (net.IP, error) {
-	conn, err := net.ListenMulticastUDP("udp4", iface, mdnsV4)
+	conn, err := listenMulticastUDP("udp4", iface, mdnsV4)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
 
-	msg := new(dns.Msg)
+	msg := newDNSMessage()
 	msg.Id = 0
 	msg.RecursionDesired = false
 	msg.SetQuestion(host, dns.TypeA)

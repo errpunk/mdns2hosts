@@ -7,8 +7,6 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/liutao/mdns2hosts/hosts"
-	"github.com/liutao/mdns2hosts/mdns"
 	"github.com/spf13/cobra"
 )
 
@@ -29,8 +27,12 @@ func init() {
 }
 
 func runWatch(cmd *cobra.Command, args []string) error {
-	if err := hosts.EnsureBlock(); err != nil {
-		return fmt.Errorf("failed to ensure hosts block: %w", err)
+	return runWatchWithStop(args, nil)
+}
+
+func runWatchWithStop(args []string, stop <-chan struct{}) error {
+	if err := ensureHostsFile(); err != nil {
+		return fmt.Errorf("failed to load hosts file: %w", err)
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -46,6 +48,9 @@ func runWatch(cmd *cobra.Command, args []string) error {
 
 	for {
 		select {
+		case <-stop:
+			fmt.Println("\nStopped watching.")
+			return nil
 		case <-sigCh:
 			fmt.Println("\nStopped watching.")
 			return nil
@@ -61,7 +66,7 @@ func runWatch(cmd *cobra.Command, args []string) error {
 }
 
 func syncOnce(names []string) map[string]net.IP {
-	results, errs := mdns.ResolveAll(names)
+	results, errs := resolveAllNames(names)
 	for _, e := range errs {
 		fmt.Fprintf(os.Stderr, "Warning: %v\n", e)
 	}
@@ -81,12 +86,12 @@ func ipsChanged(a, b map[string]net.IP) bool {
 }
 
 func writeHosts(entries map[string]net.IP) {
-	before, _, after, err := hosts.ReadHosts()
+	before, _, after, err := readHostsFile()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading hosts: %v\n", err)
 		return
 	}
-	if err := hosts.WriteHosts(before, entries, after); err != nil {
+	if err := writeHostsFile(before, entries, after); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing hosts: %v\n", err)
 	}
 }

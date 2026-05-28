@@ -12,17 +12,24 @@ var (
 	Version   = "dev"
 	Commit    = "unknown"
 	BuildDate = "unknown"
+
+	executeCommand = cmd.Execute
 )
 
 func main() {
-	for _, arg := range os.Args[1:] {
+	os.Exit(run(os.Args[1:]))
+}
+
+func run(args []string) int {
+	for _, arg := range args {
 		if arg == "-v" || arg == "--version" {
 			fmt.Printf("mdns2hosts %s commit=%s built=%s\n", Version, Commit, BuildDate)
-			return
+			return 0
 		}
 	}
 
-	if err := cmd.Execute(); err != nil {
-		os.Exit(1)
+	if err := executeCommand(); err != nil {
+		return 1
 	}
+	return 0
 }

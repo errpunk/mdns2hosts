@@ -3,14 +3,13 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/liutao/mdns2hosts/hosts"
 	"github.com/spf13/cobra"
 )
 
 var cleanCmd = &cobra.Command{
 	Use:   "clean",
-	Short: "Remove the mdns2hosts managed block from the hosts file",
-	Long:  `Removes all entries between the # BEGIN mdns2hosts and # END mdns2hosts markers.`,
+	Short: "Remove mdns2hosts-managed entries from the hosts file",
+	Long:  `Removes all hosts entries tagged with # mdns2hosts.`,
 	Args:  cobra.NoArgs,
 	RunE:  runClean,
 }
@@ -20,9 +19,9 @@ func init() {
 }
 
 func runClean(cmd *cobra.Command, args []string) error {
-	if err := hosts.CleanBlock(); err != nil {
-		return fmt.Errorf("failed to clean hosts block: %w", err)
+	if err := cleanHostsFile(); err != nil {
+		return fmt.Errorf("failed to clean managed hosts entries: %w", err)
 	}
-	fmt.Println("Managed hosts block removed.")
+	fmt.Println("Managed hosts entries removed.")
 	return nil
 }

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"net"
 	"os"
 
 	"github.com/liutao/mdns2hosts/hosts"
@@ -13,7 +14,7 @@ var syncCmd = &cobra.Command{
 	Use:   "sync [name...]",
 	Short: "Query mDNS names and sync their IPv4 addresses to the hosts file",
 	Long: `Resolves one or more .local names via mDNS multicast and writes
-the resulting IPv4 addresses into the managed block of the hosts file.`,
+the resulting IPv4 addresses into # mdns2hosts-tagged hosts entries.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runSync,
 }
@@ -22,12 +23,19 @@ func init() {
 	rootCmd.AddCommand(syncCmd)
 }
 
+var (
+	ensureHostsFile = hosts.EnsureBlock
+	readHostsFile   = hosts.ReadHosts
+	writeHostsFile  = hosts.WriteHosts
+	resolveAllNames = mdns.ResolveAll
+)
+
 func runSync(cmd *cobra.Command, args []string) error {
-	if err := hosts.EnsureBlock(); err != nil {
-		return fmt.Errorf("failed to ensure hosts block: %w", err)
+	if err := ensureHostsFile(); err != nil {
+		return fmt.Errorf("failed to load hosts file: %w", err)
 	}
 
-	results, errs := mdns.ResolveAll(args)
+	results, errs := resolveAllNames(args)
 	for _, e := range errs {
 		fmt.Fprintf(os.Stderr, "Warning: %v\n", e)
 	}
@@ -36,12 +44,12 @@ func runSync(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no mDNS names could be resolved")
 	}
 
-	before, _, after, err := hosts.ReadHosts()
+	before, _, after, err := readHostsFile()
 	if err != nil {
 		return fmt.Errorf("failed to read hosts: %w", err)
 	}
 
-	if err := hosts.WriteHosts(before, results, after); err != nil {
+	if err := writeHostsFile(before, results, after); err != nil {
 		return fmt.Errorf("failed to write hosts: %w", err)
 	}
 
@@ -50,4 +58,12 @@ func runSync(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func cloneIPMap(in map[string]net.IP) map[string]net.IP {
+	out := make(map[string]net.IP, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }

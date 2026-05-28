@@ -1,13 +1,65 @@
 package mdns
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"testing"
 	"time"
 
 	"github.com/miekg/dns"
 )
+
+type fakePacketConn struct {
+	writeErr    error
+	readPackets [][]byte
+	readErr     error
+	wrote       bool
+	closed      bool
+}
+
+func (f *fakePacketConn) Close() error {
+	f.closed = true
+	return nil
+}
+
+func (f *fakePacketConn) WriteTo([]byte, net.Addr) (int, error) {
+	f.wrote = true
+	if f.writeErr != nil {
+		return 0, f.writeErr
+	}
+	return 1, nil
+}
+
+func (f *fakePacketConn) SetReadDeadline(time.Time) error {
+	return nil
+}
+
+func (f *fakePacketConn) ReadFrom(buf []byte) (int, net.Addr, error) {
+	if len(f.readPackets) > 0 {
+		p := f.readPackets[0]
+		f.readPackets = f.readPackets[1:]
+		copy(buf, p)
+		return len(p), mdnsV4, nil
+	}
+	if f.readErr != nil {
+		return 0, nil, f.readErr
+	}
+	return 0, nil, io.EOF
+}
+
+func withResolverHooks(t *testing.T) {
+	t.Helper()
+	origLister := interfaceLister
+	origListen := listenMulticastUDP
+	origMsg := newDNSMessage
+	t.Cleanup(func() {
+		interfaceLister = origLister
+		listenMulticastUDP = origListen
+		newDNSMessage = origMsg
+	})
+}
 
 func TestQueryTimeout(t *testing.T) {
 	if queryTimeout != 3*time.Second {
@@ -137,6 +189,95 @@ func TestResolve_WithNoInterfaces(t *testing.T) {
 	_, err := Resolve("test.local")
 	if err == nil {
 		t.Error("expected error for empty interface list")
+	}
+}
+
+func TestResolveOnInterface_Success(t *testing.T) {
+	withResolverHooks(t)
+
+	resp := new(dns.Msg)
+	resp.Response = true
+	resp.Answer = append(resp.Answer, &dns.A{
+		Hdr: dns.RR_Header{
+			Name:   "test.local.",
+			Rrtype: dns.TypeA,
+			Class:  dns.ClassINET,
+			Ttl:    120,
+		},
+		A: net.ParseIP("10.0.0.99"),
+	})
+	data, err := resp.Pack()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	conn := &fakePacketConn{readPackets: [][]byte{data}}
+	listenMulticastUDP = func(string, *net.Interface, *net.UDPAddr) (multicastPacketConn, error) {
+		return conn, nil
+	}
+
+	ip, err := resolveOnInterface("test.local.", &net.Interface{Name: "eth0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ip.Equal(net.ParseIP("10.0.0.99")) {
+		t.Fatalf("unexpected IP: %v", ip)
+	}
+	if !conn.wrote || !conn.closed {
+		t.Fatalf("connection not used/closed: wrote=%v closed=%v", conn.wrote, conn.closed)
+	}
+}
+
+func TestResolveOnInterface_Errors(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func()
+	}{
+		{
+			name: "listen",
+			setup: func() {
+				listenMulticastUDP = func(string, *net.Interface, *net.UDPAddr) (multicastPacketConn, error) {
+					return nil, errors.New("listen")
+				}
+			},
+		},
+		{
+			name: "pack",
+			setup: func() {
+				listenMulticastUDP = func(string, *net.Interface, *net.UDPAddr) (multicastPacketConn, error) {
+					return &fakePacketConn{}, nil
+				}
+				newDNSMessage = func() *dns.Msg {
+					return &dns.Msg{Question: []dns.Question{{Name: "bad..name", Qtype: dns.TypeA, Qclass: dns.ClassINET}}}
+				}
+			},
+		},
+		{
+			name: "write",
+			setup: func() {
+				listenMulticastUDP = func(string, *net.Interface, *net.UDPAddr) (multicastPacketConn, error) {
+					return &fakePacketConn{writeErr: errors.New("write")}, nil
+				}
+			},
+		},
+		{
+			name: "read",
+			setup: func() {
+				listenMulticastUDP = func(string, *net.Interface, *net.UDPAddr) (multicastPacketConn, error) {
+					return &fakePacketConn{readErr: errors.New("read")}, nil
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withResolverHooks(t)
+			tt.setup()
+			if _, err := resolveOnInterface("test.local.", &net.Interface{Name: "eth0"}); err == nil {
+				t.Fatal("expected error")
+			}
+		})
 	}
 }
 
