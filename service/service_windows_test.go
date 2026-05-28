@@ -18,6 +18,9 @@ type fakeManager struct {
 	createService managedService
 	createErr     error
 	disconnected  bool
+	createName    string
+	createPath    string
+	createArgs    []string
 }
 
 func (f *fakeManager) Disconnect() error {
@@ -29,7 +32,10 @@ func (f *fakeManager) OpenService(string) (managedService, error) {
 	return f.openService, f.openErr
 }
 
-func (f *fakeManager) CreateService(string, string, mgr.Config, ...string) (managedService, error) {
+func (f *fakeManager) CreateService(name, exepath string, _ mgr.Config, args ...string) (managedService, error) {
+	f.createName = name
+	f.createPath = exepath
+	f.createArgs = append([]string(nil), args...)
 	return f.createService, f.createErr
 }
 
@@ -97,6 +103,15 @@ func TestInstallWindowsSuccess(t *testing.T) {
 	}
 	if !manager.disconnected {
 		t.Fatal("manager should be disconnected")
+	}
+	if manager.createName != svcName {
+		t.Fatalf("unexpected service name: %s", manager.createName)
+	}
+	if manager.createPath != `C:\tools\mdns2hosts.exe` {
+		t.Fatalf("unexpected service path: %s", manager.createPath)
+	}
+	if len(manager.createArgs) != 1 || manager.createArgs[0] != "service-run" {
+		t.Fatalf("unexpected service args: %v", manager.createArgs)
 	}
 
 	names, interval, err := ReadConfig()
