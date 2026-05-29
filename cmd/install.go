@@ -13,9 +13,9 @@ var (
 
 var installCmd = &cobra.Command{
 	Use:   "install-service",
-	Short: "Install mdns2hosts as a Windows service",
-	Long: `Registers mdns2hosts as a Windows service that periodically
-syncs the configured mDNS names to the hosts file. Requires Administrator privileges.`,
+	Short: "Install mdns2hosts as a system service",
+	Long: `Registers mdns2hosts as a Windows or Linux service that periodically
+syncs the configured mDNS names to the hosts file. Requires elevated privileges.`,
 	Args: cobra.NoArgs,
 	RunE: runInstall,
 }
@@ -38,6 +38,6 @@ func runInstall(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("Service installed. It will sync %v every %s.\n", svcNames, svcInterval)
-	fmt.Println("Start it with: sc start mdns2hosts")
+	fmt.Println("Start it with: sc start mdns2hosts (Windows) or systemctl start mdns2hosts (Linux)")
 	return nil
 }

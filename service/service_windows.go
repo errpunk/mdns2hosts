@@ -10,9 +10,6 @@ import (
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
-const svcName = "mdns2hosts"
-const svcDisplay = "mDNS to Hosts Sync Service"
-
 type serviceManager interface {
 	Disconnect() error
 	OpenService(name string) (managedService, error)

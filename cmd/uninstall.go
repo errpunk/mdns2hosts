@@ -8,8 +8,8 @@ import (
 
 var uninstallCmd = &cobra.Command{
 	Use:   "uninstall-service",
-	Short: "Remove the mdns2hosts Windows service",
-	Long:  `Stops and unregisters the mdns2hosts Windows service.`,
+	Short: "Remove the mdns2hosts system service",
+	Long:  `Stops and unregisters the mdns2hosts Windows or Linux service.`,
 	Args:  cobra.NoArgs,
 	RunE:  runUninstall,
 }

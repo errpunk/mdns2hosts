@@ -1,6 +1,9 @@
-BINARY = mdns2hosts.exe
+BINARY = mdns2hosts
 GOARCH = amd64
-GOOS   = windows
+GOOS   ?= $(shell go env GOOS)
+ifeq ($(GOOS),windows)
+BINARY := mdns2hosts.exe
+endif
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  = $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
@@ -19,13 +22,13 @@ build:
 	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags "$(LDFLAGS)" -o $(BINARY) .
 
 test:
-	go test -short ./hosts/... ./mdns/... ./service/...
+	go test -short ./...
 
 test-full:
-	go test ./hosts/... ./mdns/... ./service/...
+	go test ./...
 
 coverage:
-	go test ./hosts/... ./mdns/... ./service/... -coverprofile=coverage.out -covermode=atomic
+	go test ./... -coverprofile=coverage.out -covermode=atomic
 	go tool cover -func=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
 
